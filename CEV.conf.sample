@@ -1,0 +1,8 @@
+[profiles]
+packages=all,dump
+[dump]
+dump=mbr
+[output]
+type=csv
+destination=local
+dir=output
