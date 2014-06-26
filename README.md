@@ -1,5 +1,7 @@
 #Fast Responder
+##Concepts
 
+His tool collects differents artefact on live Windows and records the results in csv files. With the analyses of this artefacts, an early compromission can be detected.
 ## Requirements
 - pywin32
 - python WMI
