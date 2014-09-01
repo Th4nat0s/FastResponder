@@ -112,10 +112,25 @@ def timer_open_files(proc, q):
 
 class _Popen(forking.Popen):
 	def __init__(self, *args, **kw):
+		if hasattr(sys, 'frozen'):
+			# We have to set original _MEIPASS2 value from sys._MEIPASS
+			# to get --onefile mode working.
+			# Last character is stripped in C-loader. We have to add
+			# '/' or '\\' at the end.
+			os.putenv('_MEIPASS2', sys._MEIPASS + os.sep)
 		try:
 			super(_Popen, self).__init__(*args, **kw)
 		finally:
-			pass
+			if hasattr(sys, 'frozen'):
+				# On some platforms (e.g. AIX) 'os.unsetenv()' is not
+				# available. In those cases we cannot delete the variable
+				# but only set it to the empty string. The bootloader
+				# can handle this case.
+				if hasattr(os, 'unsetenv'):
+					os.unsetenv('_MEIPASS2')
+				else:
+					os.putenv('_MEIPASS2', '')
+
 class Process(Process):
 	_Popen = _Popen
 
@@ -202,8 +217,9 @@ class _Memory(object):
 					else:
 						# Otherwise, continue normal processing
 						opened_files = q.get()
-						for opened_file in opened_files:
-							write_to_csv([self.computer_name, 'Files Opened', unicode(pe32.th32ProcessID), process_name, opened_file[0]], csv_writer)
+						if isinstance(opened_files, list):
+							for opened_file in opened_files:
+								write_to_csv([self.computer_name, 'Files Opened', unicode(pe32.th32ProcessID), process_name, opened_file[0]], csv_writer)
 				except psutil.AccessDenied:
 					self.logger.warn('Could not open handle for PID : ' + unicode(pe32.th32ProcessID))
 				#ListProcessThreads( pe32.th32ProcessID )
