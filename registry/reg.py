@@ -120,7 +120,7 @@ class _Reg(object):
 			except EnvironmentError:
 				break
 	
-	def _dump_csv_registry_to_output(self, hive_name, path, hive, csv_writer, username=None, optional_function=None):
+	def _dump_csv_registry_to_output(self, hive_name, path, hive, csv_writer, username=None, optional_function=None, is_recursive=True):
 		''' Dumps the registry in the given output file object
 			Path should end with the '\' (for concat reasons) '''
 		try:
@@ -128,11 +128,12 @@ class _Reg(object):
 			# print values from key
 			date_last_mod = convert_windate(QueryInfoKey(reg_key)[2])
 			self.__print_regkey_values_csv(reg_key, date_last_mod, hive_name, path, csv_writer, username, optional_function)
-			for index_subkey in range(QueryInfoKey(reg_key)[0]): # the number of subkeys
-				# then go further in the tree
-				str_subkey = EnumKey(reg_key, index_subkey)
-				self._dump_csv_registry_to_output(hive_name, path + str_subkey + '\\', hive, csv_writer, username, optional_function)
-			CloseKey(reg_key)
+			if is_recursive:
+				for index_subkey in range(QueryInfoKey(reg_key)[0]): # the number of subkeys
+					# then go further in the tree
+					str_subkey = EnumKey(reg_key, index_subkey)
+					self._dump_csv_registry_to_output(hive_name, path + str_subkey + '\\', hive, csv_writer, username, optional_function)
+				CloseKey(reg_key)
 		except WindowsError as e:
 			if e.winerror == 5: # Access denied
 				pass
@@ -282,6 +283,7 @@ class _Reg(object):
 	def _csv_user_assist(self, count_offset, is_win7_or_further):
 		''' Extracts information from UserAssist registry key which contains information about executed programs '''
 		''' The count offset is for Windows versions before 7, where it would start at 6... '''
+		self.logger.info('Getting user_assist from registry')
 		aReg = ConnectRegistry(None,HKEY_USERS)
 		
 		str_user_assist = 'Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssist\\'
@@ -343,6 +345,7 @@ class _Reg(object):
 	def _csv_open_save_MRU(self, str_opensaveMRU):
 		''' Extracts information from OpenSaveMRU registry key which contains information about opened and saved windows '''
 		# TODO : Win XP
+		self.logger.info('Getting open_save_MRU from registry')
 		aReg = ConnectRegistry(None,HKEY_USERS)
 		
 		with open(self.output_dir + '\\' + self.computer_name + '_opensaveMRU.csv', 'wb') as output:
@@ -394,6 +397,7 @@ class _Reg(object):
 	
 	def csv_recent_docs(self):
 		# Shows where recently opened files are saved and when they were opened
+		self.logger.info('Getting recent_docs from registry')
 		path = '\Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs\\'
 		aReg = ConnectRegistry(None,HKEY_USERS)
 		with open(self.output_dir + '\\' + self.computer_name + '_recent_docs.csv', 'wb') as output:
@@ -410,7 +414,8 @@ class _Reg(object):
 	
 	def csv_installer_folder(self):
 		# Shows where recently opened files are saved and when they were opened
-		path = '\Microsoft\Windows\CurrentVersion\Installer\Folders\\'
+		self.logger.info('Getting installer folders from registry')
+		path = 'Software\Microsoft\Windows\CurrentVersion\Installer\Folders\\'
 		with open(self.output_dir + '\\' + self.computer_name + '_installer_folder.csv', 'ab') as output:
 			aReg = ConnectRegistry(None, HKEY_LOCAL_MACHINE)
 			csv_writer = get_csv_writer(output)
@@ -423,7 +428,7 @@ class _Reg(object):
 	def csv_shell_bags(self):
 		''' Exports the shell bags from Windows registry in a csv '''
 		# TODO Check Vista and under
-		self.logger.info("Getting shell bags")
+		self.logger.info("Getting shell bags from registry")
 		aReg = ConnectRegistry(None,HKEY_USERS)
 		with open(self.output_dir + '\\' + self.computer_name + '_shellbags.csv', 'wb') as output:
 			csv_writer = get_csv_writer(output)
@@ -445,6 +450,7 @@ class _Reg(object):
 	def csv_startup_programs(self):
 		''' Exports the programs running at startup '''
 		''' [HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run]
+			[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\RunOnceEx]
 			[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\RunOnce]
 			[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\RunServices]
 			[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\RunServicesOnce]
@@ -452,12 +458,15 @@ class _Reg(object):
 			[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run]
 			
 			[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run]
+			[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\RunOnceEx]
 			[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\RunOnce]
 			[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\RunServices]
 			[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\RunServicesOnce]
 			[HKEY_CURRENT_USER\Software\Microsoft\Windows NT\CurrentVersion\Windows]
 		'''
-		self.logger.info("Getting startup programs")
+		self.logger.info("Getting startup programs from registry")
+		software = '\Software'
+		wow = '\Wow6432Node'
 		with open(self.output_dir + '\\' + self.computer_name + '_startup.csv', 'wb') as output:
 			csv_writer = get_csv_writer(output)
 			aReg = ConnectRegistry(None, HKEY_USERS)
@@ -465,13 +474,16 @@ class _Reg(object):
 				# in HKEY_USERS, we have a list of subkeys which are SIDs
 				str_sid = EnumKey(aReg, index_sid)
 				username = str_sid2username(str_sid)
-				paths = ['\Software\Microsoft\Windows\CurrentVersion\Run\\', '\Software\Microsoft\Windows\CurrentVersion\RunOnce\\',
-						'\Software\Microsoft\Windows\CurrentVersion\RunServices\\',
-						'\Software\Microsoft\Windows\CurrentVersion\RunServicesOnce\\',
-						'\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\\Userinit\\']
+				paths = ['\Microsoft\Windows\CurrentVersion\Run\\', '\Microsoft\Windows\CurrentVersion\RunOnce\\',
+						'\Software\Microsoft\Windows\CurrentVersion\RunOnceEx',
+						'\Microsoft\Windows\CurrentVersion\RunServices\\',
+						'\Microsoft\Windows\CurrentVersion\RunServicesOnce\\',
+						'\Microsoft\Windows NT\CurrentVersion\Winlogon\\Userinit\\']
 				for path in paths:
 					try:
-						full_path = str_sid + path
+						full_path = str_sid + software + path
+						self._dump_csv_registry_to_output('HKEY_USERS', full_path, aReg, csv_writer, username)
+						full_path = str_sid + software + wow + path
 						self._dump_csv_registry_to_output('HKEY_USERS', full_path, aReg, csv_writer, username)
 					except WindowsError:
 						pass
@@ -479,15 +491,79 @@ class _Reg(object):
 		with open(self.output_dir + '\\' + self.computer_name + '_startup.csv', 'ab') as output:
 			csv_writer = get_csv_writer(output)
 			aReg = ConnectRegistry(None, HKEY_LOCAL_MACHINE)
-			paths = ['\Software\Microsoft\Windows\CurrentVersion\Run\\', '\Software\Microsoft\Windows\CurrentVersion\RunOnce\\',
-				'\Software\Microsoft\Windows\CurrentVersion\RunServices\\',
-				'\Software\Microsoft\Windows\CurrentVersion\RunServicesOnce\\',
-				'\Software\Microsoft\Windows NT\CurrentVersion\Windows\\']
+			paths = ['\Microsoft\Windows\CurrentVersion\Run\\', '\Microsoft\Windows\CurrentVersion\RunOnce\\',
+					'\Software\Microsoft\Windows\CurrentVersion\RunOnceEx',
+					'\Microsoft\Windows\CurrentVersion\RunServices\\',
+					'\Microsoft\Windows\CurrentVersion\RunServicesOnce\\',
+					'\Microsoft\Windows NT\CurrentVersion\Windows\\']
 			for path in paths:
 				try:
+					full_path = software + path
+					self._dump_csv_registry_to_output('HKEY_LOCAL_MACHINE', path, aReg, csv_writer)
+					full_path = software + wow + path
 					self._dump_csv_registry_to_output('HKEY_LOCAL_MACHINE', path, aReg, csv_writer)
 				except WindowsError:
 					pass
+		CloseKey(aReg)
+	
+	def csv_installed_components(self):
+		# outputs installed components to file
+		''' HKLM\SOFTWARE\Microsoft\Active Setup\Installed Components '''
+		self.logger.info('Getting installed components from registry')
+		path = 'Software\Microsoft\Active Setup\Installed Components\\'
+		with open(self.output_dir + '\\' + self.computer_name + '_installed_components.csv', 'wb') as output:
+			aReg = ConnectRegistry(None, HKEY_LOCAL_MACHINE)
+			csv_writer = get_csv_writer(output)
+			try:
+				self._dump_csv_registry_to_output('HKEY_LOCAL_MACHINE', path, aReg, csv_writer)
+			except WindowsError:
+				pass
+		CloseKey(aReg)
+	
+	def csv_winlogon_values(self):
+		# outputs winlogon's values to file
+		self.logger.info('Getting winlogon values from registry')
+		path = 'Software\Microsoft\Windows NT\CurrentVersion\Winlogon\\'
+		with open(self.output_dir + '\\' + self.computer_name + '_winlogon_values.csv', 'wb') as output:
+			aReg = ConnectRegistry(None, HKEY_LOCAL_MACHINE)
+			csv_writer = get_csv_writer(output)
+			try:
+				self._dump_csv_registry_to_output('HKEY_LOCAL_MACHINE', path, aReg, csv_writer, is_recursive=False)
+				aReg = ConnectRegistry(None, HKEY_USERS)
+				for index_sid in range(QueryInfoKey(aReg)[0]): # the number of subkeys
+					# in HKEY_USERS, we have a list of subkeys which are SIDs
+					str_sid = EnumKey(aReg, index_sid)
+					username = str_sid2username(str_sid)
+					full_path = str_sid + '\\' + path
+					try:
+						self._dump_csv_registry_to_output('HKEY_USERS', full_path, aReg, csv_writer, username, is_recursive=False)
+					except WindowsError:
+						pass
+			except WindowsError:
+				pass
+		CloseKey(aReg)
+	
+	def csv_windows_values(self):
+		# outputs winlogon's values to file
+		self.logger.info('Getting windows values from registry')
+		path = 'Software\Microsoft\Windows NT\CurrentVersion\Windows\\'
+		with open(self.output_dir + '\\' + self.computer_name + '_windows_values.csv', 'wb') as output:
+			aReg = ConnectRegistry(None, HKEY_LOCAL_MACHINE)
+			csv_writer = get_csv_writer(output)
+			try:
+				self._dump_csv_registry_to_output('HKEY_LOCAL_MACHINE', path, aReg, csv_writer, is_recursive=False)
+				aReg = ConnectRegistry(None, HKEY_USERS)
+				for index_sid in range(QueryInfoKey(aReg)[0]): # the number of subkeys
+					# in HKEY_USERS, we have a list of subkeys which are SIDs
+					str_sid = EnumKey(aReg, index_sid)
+					username = str_sid2username(str_sid)
+					full_path = str_sid + '\\' + path
+					try:
+						self._dump_csv_registry_to_output('HKEY_USERS', full_path, aReg, csv_writer, username, is_recursive=False)
+					except WindowsError:
+						pass
+			except WindowsError:
+				pass
 		CloseKey(aReg)
 	
 	def run_mru_start(self):
