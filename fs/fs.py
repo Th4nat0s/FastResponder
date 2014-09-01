@@ -23,9 +23,11 @@
 from __future__ import unicode_literals
 
 import datetime
+import hashlib
 import logging
 import os
 import traceback
+
 from utils import 	get_int_from_reversed_string, look_for_outlook_dirs, get_userprofiles_from_reg,\
 					look_for_files, zip_archive, get_csv_writer, write_to_csv
 from win32com.shell import shell, shellcon
@@ -39,7 +41,7 @@ class _FS(object):
 		self.computer_name=params['computer_name']
 		self.output_dir=params['output_dir']
 		self.logger=params['logger']
-		
+
 	def _list_named_pipes(self):
 		for p in look_for_files('\\\\.\\pipe\\*'):
 			yield p
@@ -161,7 +163,32 @@ class _FS(object):
 	
 	def _ie_history(self, directories_to_search):
 		self.__data_from_userprofile("IEHistory", directories_to_search)
-		
+
+	def csv_md5deep(self,path=os.environ['SYSTEMDRIVE']+'\\'):
+		try:
+			list_files=os.listdir(unicode(path))
+		except Exception as e:
+			self.logger.error("Cannot list " + path)
+			return
+		for f in list_files:
+			d=os.path.join(path,f)
+			if os.path.isdir(d):
+				self.csv_md5deep(d)
+			elif os.path.isfile(d):
+				try:
+					fh = open(d,'r')
+					m = hashlib.md5()
+					for chunck in fh.read(8096):
+						m.update(chunck)
+					with open(self.output_dir + '\\' + self.computer_name + '_md5deep.csv', 'ab') as output:
+						csv_writer = get_csv_writer(output)	
+						write_to_csv(['md5deep',d,m.hexdigest()], csv_writer)
+				except UnicodeError:
+					pass
+				except IOError:
+					pass
+				except ValueError:
+					pass
 	def csv_recycle_bin(self):
 		''' Exports the filenames contained in the recycle bin '''
 		with open(self.output_dir + '\\' + self.computer_name + '_recycle_bin.csv', 'wb') as output:
