@@ -32,31 +32,25 @@ class WindowsXPStateMachine(_Statemachine):
 		_Statemachine.__init__(self,params)
 		
 	def _list_share(self):
-		print "List share"
 		return super(WindowsXPStateMachine,self)._list_share()
 	
 	def _list_running(self):
-		print "List Running process"
 		return super(WindowsXPStateMachine,self)._list_running()
 	
 	def _list_drives(self):
-		print "List drive"
 		return super(WindowsXPStateMachine,self)._list_drives()
 	
 	def _list_network_drives(self):
-		print "List networkdrive"
 		return super(WindowsXPStateMachine,self)._list_network_drives()
 	
 	def _list_sessions(self):
-		print 'List sessions'
 		return super(WindowsXPStateMachine,self)._list_sessions()
 	
 	def _list_scheduled_jobs(self):
-		print 'List Scheduled Jobs'
 		return super(WindowsXPStateMachine,self)._list_scheduled_jobs()
 	
-	def  _list_network_adapters(self):
-		print 'List Network adapter'
+	def _list_network_adapters(self):
+		self.logger.info('Health : Listing scheduled jobs')
 		net=self.wmi.Win32_NetworkAdapter()
 		for n in net:
 			netcard=utils.decode_output_cmd(n.Caption)
@@ -101,19 +95,15 @@ class WindowsXPStateMachine(_Statemachine):
 			yield netcard,adapter_type,description,mac_address,product_name,physical_adapter,product_name,speed,IPv4,IPv6,DHCP_server,DNS_server,database_path,nbtstat_value
 				
 	def _list_arp_table(self):
-		print 'List arp table'
 		return super(WindowsXPStateMachine,self)._list_arp_table()
 	
 	def _list_route_table(self):
-		print 'List route table'
 		return super(WindowsXPStateMachine,self)._list_route_table()
 	
 	def _list_sockets_network(self):
-		print 'List Sockets Networks'
 		return super(WindowsXPStateMachine,self)._list_sockets_network()
 	
 	def _list_sockets_services(self):
-		print 'List Services'
 		return super(WindowsXPStateMachine,self)._list_services()
 	
 	def csv_list_drives(self):
@@ -132,6 +122,7 @@ class WindowsXPStateMachine(_Statemachine):
 		super(WindowsXPStateMachine,self)._csv_list_sessions(self._list_sessions())
 		
 	def csv_list_scheduled_jobs(self):
+		self.logger.info('Health : Listing scheduled jobs')
 		file_tasks=self.output_dir + '_tasks.csv'
 		with open(file_tasks, 'wb') as tasks_logs:
 			proc=subprocess.Popen(["schtasks.exe",'/query','/fo','CSV'],stdout=subprocess.PIPE)
@@ -159,4 +150,3 @@ class WindowsXPStateMachine(_Statemachine):
 		
 	def csv_list_services(self):
 		super(WindowsXPStateMachine,self)._csv_list_services(self._list_services())
-		

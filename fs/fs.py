@@ -23,11 +23,13 @@
 from __future__ import unicode_literals
 
 import datetime
+import hashlib
 import logging
 import os
 import traceback
+
 from utils import 	get_int_from_reversed_string, look_for_outlook_dirs, get_userprofiles_from_reg,\
-					look_for_files, zip_archive, get_csv_writer, write_to_csv
+					look_for_files, zip_archive, get_csv_writer, write_to_csv, record_sha256_logs, process_sha256
 from win32com.shell import shell, shellcon
 
 
@@ -39,7 +41,7 @@ class _FS(object):
 		self.computer_name=params['computer_name']
 		self.output_dir=params['output_dir']
 		self.logger=params['logger']
-		
+
 	def _list_named_pipes(self):
 		for p in look_for_files('\\\\.\\pipe\\*'):
 			yield p
@@ -134,28 +136,6 @@ class _FS(object):
 			except:
 				logging.error(traceback.format_exc())
 	
-
-	def _csv_list_named_pipes(self,pipes):
-		with open(self.output_dir + '\\' + self.computer_name + '_named_pipes.csv', 'wb') as output:
-			csv_writer = get_csv_writer(output)
-			#output.write('"Computer Name"|"Type"|"Name"\n')
-			for pipe in pipes:
-				write_to_csv([self.computer_name, 'PIPES', pipe], csv_writer)
-	
-	def _csv_windows_prefetch(self,wpref):
-		with open(self.output_dir + '\\' + self.computer_name + '_prefetch.csv', 'wb') as output:
-			csv_writer = get_csv_writer(output)
-			#output.write('"Computer Name"|"Type"|"File"|"Version"|"Size"|"name Exec"|"Create Time"|"Modification Time"\n')
-			for prefetch_file, format_version, file_size, exec_name, tc, tm, run_count, hash_table_a, list_str_c in wpref:
-				str_c = ''
-				for s in list_str_c:
-					str_c += s.replace('\0', '') + ';'
-				
-				write_to_csv([	self.computer_name, 'Prefetch', prefetch_file,
-									unicode(format_version), unicode(file_size), exec_name.replace('\00', ''),
-									unicode(tc), unicode(tm), unicode(run_count), unicode(hash_table_a['start_time']),
-									unicode(hash_table_a['duration']), unicode(hash_table_a['average_duration']), str_c], csv_writer)
-	
 	def __enum_directory(self, path):
 		files_list = []
 		for dirname, subdirnames, filenames in os.walk(path):
@@ -182,7 +162,53 @@ class _FS(object):
 	
 	def _ie_history(self, directories_to_search):
 		self.__data_from_userprofile("IEHistory", directories_to_search)
-		
+
+	def csv_sha256(self,path=os.environ['SYSTEMDRIVE']+'\\'):
+		try:
+			list_files=os.listdir(unicode(path))
+		except Exception as e:
+			self.logger.warn("Cannot list " + path)
+			return
+		for f in list_files:
+			d=os.path.join(path,f)
+			if os.path.isdir(d):
+				self.csv_sha256(d)
+			elif os.path.isfile(d):
+				try:
+					sha = process_sha256(d)
+					with open(self.output_dir + '\\' + self.computer_name + '_sha256.csv', 'ab') as output:
+						csv_writer = get_csv_writer(output)	
+						write_to_csv(['sha256',d,sha.hexdigest()], csv_writer)
+				except UnicodeError:
+					pass
+				except IOError:
+					pass
+				except ValueError:
+					pass
+	
+	def _csv_list_named_pipes(self,pipes):
+		with open(self.output_dir + '\\' + self.computer_name + '_named_pipes.csv', 'wb') as output:
+			csv_writer = get_csv_writer(output)
+			#output.write('"Computer Name"|"Type"|"Name"\n')
+			for pipe in pipes:
+				write_to_csv([self.computer_name, 'PIPES', pipe], csv_writer)
+		record_sha256_logs(self.output_dir + '\\' + self.computer_name + '_named_pipes.csv',self.output_dir +'\\'+self.computer_name+'_sha256.log')
+	
+	def _csv_windows_prefetch(self,wpref):
+		with open(self.output_dir + '\\' + self.computer_name + '_prefetch.csv', 'wb') as output:
+			csv_writer = get_csv_writer(output)
+			#output.write('"Computer Name"|"Type"|"File"|"Version"|"Size"|"name Exec"|"Create Time"|"Modification Time"\n')
+			for prefetch_file, format_version, file_size, exec_name, tc, tm, run_count, hash_table_a, list_str_c in wpref:
+				str_c = ''
+				for s in list_str_c:
+					str_c += s.replace('\0', '') + ';'
+				
+				write_to_csv([	self.computer_name, 'Prefetch', prefetch_file,
+									unicode(format_version), unicode(file_size), exec_name.replace('\00', ''),
+									unicode(tc), unicode(tm), unicode(run_count), unicode(hash_table_a['start_time']),
+									unicode(hash_table_a['duration']), unicode(hash_table_a['average_duration']), str_c], csv_writer)
+		record_sha256_logs(self.output_dir + '\\' + self.computer_name + '_prefetch.csv',self.output_dir +'\\'+self.computer_name+'_sha256.log')
+	
 	def csv_recycle_bin(self):
 		''' Exports the filenames contained in the recycle bin '''
 		with open(self.output_dir + '\\' + self.computer_name + '_recycle_bin.csv', 'wb') as output:
@@ -195,3 +221,4 @@ class _FS(object):
 			for bin_file in files:
 				write_to_csv([	self.computer_name, 'Recycle Bin', files.GetDisplayNameOf(bin_file, shellcon.SHGDN_NORMAL),
 								files.GetDisplayNameOf(bin_file, shellcon.SHGDN_FORPARSING)], csv_writer)
+		record_sha256_logs(self.output_dir + '\\' + self.computer_name + '_recycle_bin.csv',self.output_dir +'\\'+self.computer_name+'_sha256.log')

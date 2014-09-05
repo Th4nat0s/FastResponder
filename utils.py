@@ -31,6 +31,7 @@ import win32service
 import os, sys
 import datetime
 import glob
+import hashlib
 from string import ascii_uppercase
 from _winreg import ConnectRegistry, OpenKey, QueryInfoKey, EnumKey, EnumValue, CloseKey, HKEY_LOCAL_MACHINE
 import zipfile
@@ -334,3 +335,15 @@ def process_size(size_str):
 	value=size_str[:len(size_str)-1]
 	return long(value)*unities[suffix]
 	
+def record_sha256_logs(fr,fw):
+	with open(fw,'a') as hash_file:
+		m=process_sha256(fr)
+		hash_file.write(fr+','+m.hexdigest()+'\n')
+		hash_file.close()
+		
+def process_sha256(path):
+	f = open(path,'r')
+	m = hashlib.md5()
+	for chunck in f.read(8096):
+		m.update(chunck)
+	return m

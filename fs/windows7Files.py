@@ -23,6 +23,7 @@
 from __future__ import unicode_literals
 from fs import _FS
 import os
+
 class Windows7Files(_FS):
 	def __init__(self,params):
 		super(Windows7Files,self).__init__(params)
@@ -32,13 +33,13 @@ class Windows7Files(_FS):
 	
 	def _list_windows_prefetch(self):
 		return super(Windows7Files,self)._list_windows_prefetch()
-			
+
 	def csv_print_list_named_pipes(self):
 		super(Windows7Files,self). _csv_list_named_pipes(self._list_named_pipes())
 		
 	def csv_print_list_windows_prefetch(self):
 		super(Windows7Files,self)._csv_windows_prefetch(self._list_windows_prefetch())
-	
+		
 	def csv_ie_history(self):
 		super(Windows7Files, self)._ie_history(['AppData\Local\Microsoft\Windows\*\History.IE5',
 	   'AppData\Local\Microsoft\Windows\*\Low\History.IE5'])

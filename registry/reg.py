@@ -37,7 +37,6 @@ class _Reg(object):
 	def _print_regkey_csv(self, key_path, hive, is_recursive, output, subkey_type_to_query=None, additional_info_function=None):
 		''' Main method to print all the data retrieved in the registry to the output file '''
 		''' additional_info_function is a function parameter, as it is needed in some cases... '''
-		self.logger.info('Looking in regitry')
 		self.aReg = ConnectRegistry(None, hive)
 		try:
 			bKey = OpenKey(self.aReg, key_path)
@@ -63,7 +62,7 @@ class _Reg(object):
 					subkey_path = key_path + subkey_name + '\\'
 					node_type = 'Key'
 					date_last_mod = convert_windate(QueryInfoKey(subkey)[2])
-					self.logger.info(date_last_mod + ' : ' + subkey_name)
+					#self.logger.info(date_last_mod + ' : ' + subkey_name)
 					write_to_csv([self.computer_name, date_last_mod, 'HKEY_LOCAL_MACHINE', subkey_path, node_type, key_info], csv_writer)
 					if is_recursive:
 						self.__print_regkey_values_csv(subkey, date_last_mod, 'HKEY_LOCAL_MACHINE', subkey_path, csv_writer, is_recursive, subkey_type_to_query) # print the values first
@@ -76,7 +75,7 @@ class _Reg(object):
 		for i in range(QueryInfoKey(bKey)[1]): # the number of values
 			try:
 				value_name=EnumValue(bKey,i)
-				subkey_path = key_path + value_name[0]
+				subkey_path = key_path + value_name[0].replace(b'\xa0', b' ')
 				node_type = ''
 				values = []
 				if value_name[2] == REG_MULTI_SZ: # the value is a list
@@ -395,6 +394,17 @@ class _Reg(object):
 				pass
 		CloseKey(aReg)
 	
+	def __decode_recent_docs_MRU(self, value):
+		# Decodes recent docs MRU list
+		# Returns an array with 1st element being the filename, the second element being the symbolic link name
+		value_decoded = []
+		if b'\x00\x00\x00' in value:
+			index = value.find(b'\x00\x00\x00')
+			value_decoded.append(value[0:index+1].decode('utf-16-le'))
+			index_end_link_name = value.find(b'\x00', index+3 + 14) # index+3 because the last char also ends with \x00 + null bytes \x00\x00, +14 is the offset for the link name
+			value_decoded.append(value[index+3+14:index_end_link_name])
+		return value_decoded
+	
 	def csv_recent_docs(self):
 		# Shows where recently opened files are saved and when they were opened
 		self.logger.info('Getting recent_docs from registry')
@@ -402,12 +412,31 @@ class _Reg(object):
 		aReg = ConnectRegistry(None,HKEY_USERS)
 		with open(self.output_dir + '\\' + self.computer_name + '_recent_docs.csv', 'wb') as output:
 			csv_writer = get_csv_writer(output)
-			for index_sid in range(QueryInfoKey(aReg)[0]): # the number of subkeys
+			for index_sid in range(QueryInfoKey(aReg)[0]): # the number of subkeys (SIDs)
 				str_sid = EnumKey(aReg, index_sid)
 				full_path = str_sid + path
 				try:
 					username = str_sid2username(str_sid)
-					self._dump_csv_registry_to_output('HKEY_USERS', full_path, aReg, csv_writer, username)
+					result = [username, str_sid]
+					reg_recent_docs = OpenKey(aReg, full_path)
+					# Get values of RecentDocs itself
+					for index_value in range(QueryInfoKey(reg_recent_docs)[1]): # the number of values (RecentDocs)
+						str_value_name = EnumValue(reg_recent_docs, index_value)[0]
+						str_value_datatmp = EnumValue(reg_recent_docs, index_value)[1]
+						if str_value_name != "MRUListEx":
+							value_decoded = self.__decode_recent_docs_MRU(str_value_datatmp)
+							write_to_csv(result + value_decoded, csv_writer)
+					# Get values of RecentDocs subkeys
+					for index_recent_docs_subkey in range(QueryInfoKey(reg_recent_docs)[0]): # the number of subkeys (RecentDocs)
+						recent_docs_subkey = EnumKey(reg_recent_docs, index_recent_docs_subkey)
+						reg_recent_docs_subkey = OpenKey(aReg, full_path + recent_docs_subkey)
+						for index_value in range(QueryInfoKey(reg_recent_docs_subkey)[1]): # the number of values (RecentDocs subkeys)
+							str_value_name = EnumValue(reg_recent_docs_subkey, index_value)[0]
+							str_value_datatmp = EnumValue(reg_recent_docs_subkey, index_value)[1]
+							if str_value_name != "MRUListEx":
+								value_decoded = self.__decode_recent_docs_MRU(str_value_datatmp)
+								write_to_csv(result + value_decoded, csv_writer)
+					#self._dump_csv_registry_to_output('HKEY_USERS', full_path, aReg, csv_writer, username)
 				except WindowsError:
 					pass
 		CloseKey(aReg)
@@ -495,7 +524,8 @@ class _Reg(object):
 					'\Software\Microsoft\Windows\CurrentVersion\RunOnceEx',
 					'\Microsoft\Windows\CurrentVersion\RunServices\\',
 					'\Microsoft\Windows\CurrentVersion\RunServicesOnce\\',
-					'\Microsoft\Windows NT\CurrentVersion\Windows\\']
+					'\Microsoft\Windows NT\CurrentVersion\Windows\\',
+					'\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run']
 			for path in paths:
 				try:
 					full_path = software + path
@@ -565,6 +595,44 @@ class _Reg(object):
 			except WindowsError:
 				pass
 		CloseKey(aReg)
+		
+	def _get_key_info(self, key_name):
+		''' Extract information from the registry concerning the USB key '''
+		#HKEY_LOCAL_MACHINE\SYSTEM\ControlSet001\Control\DeviceClasses\{a5dcbf10-6530-11d2-901f-00c04fb951ed}
+		str_reg_key_usbinfo = "SYSTEM\ControlSet001\Control\DeviceClasses\{a5dcbf10-6530-11d2-901f-00c04fb951ed}\\"
+		
+		# here is a sample of a key_name
+		# ##?#USBSTOR#Disk&Ven_&Prod_USB_DISK_2.0&Rev_PMAP#07BC13025A3B03A1&0#{53f56307-b6bf-11d0-94f2-00a0c91efb8b}
+		# the logic is : there are 6 '#' so we should split this string on '#' and get the USB id (index 5)
+		index_id = 5
+		usb_id = key_name.split('#')[index_id]
+		# now we want only the left part of the which may contain another separator '&' -> 07BC13025A3B03A1&0
+		usb_id = usb_id.split('&')[0]
+		
+		# next we look in the registry for such an id
+		key_ids = ""
+		reg_key_info = OpenKey(self.aReg, str_reg_key_usbinfo)
+		for i in range(QueryInfoKey(reg_key_info)[0]): # the number of subkeys
+			try:
+				subkey_name=EnumKey(reg_key_info,i)
+				if usb_id in subkey_name:
+					# example of a key_info_name
+					# ##?#USB#VID_26BD&PID_9917#0702313E309E0863#{a5dcbf10-6530-11d2-901f-00c04fb951ed}
+					# the pattern is quite similar, a '#' separated string, with 5 as key id and 4 as VID&PID, we need those 2
+					index_id = 4
+					key_ids = subkey_name.split('#')[index_id]
+					break
+			except EnvironmentError:
+				break
+		CloseKey(reg_key_info)
+		return key_ids
+	
+	def csv_usb_history(self):
+		self.logger.info('Getting USB history')
+		key = 'SYSTEM\CurrentControlSet\Control\DeviceClasses\{53f56307-b6bf-11d0-94f2-00a0c91efb8b}\\'
+		with open(self.output_dir + '\\' + self.computer_name + '_USBHistory.csv', 'wb') as output:
+			csv_writer = get_csv_writer(output)
+			self._print_regkey_csv(key, HKEY_LOCAL_MACHINE, False, csv_writer,'USBSTOR', self._get_key_info)
 	
 	def run_mru_start(self):
 		#TODO
