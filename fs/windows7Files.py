@@ -34,6 +34,7 @@ class Windows7Files(_FS):
 	def _list_windows_prefetch(self):
 		return super(Windows7Files,self)._list_windows_prefetch()
 
+			
 	def csv_print_list_named_pipes(self):
 		super(Windows7Files,self). _csv_list_named_pipes(self._list_named_pipes())
 		
